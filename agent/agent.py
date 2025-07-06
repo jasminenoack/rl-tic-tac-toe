@@ -30,7 +30,7 @@ STATE_FILE = "/data/agent_state.json"
 
 
 class RLAgent:
-    def __init__(self, learning_rate=0.1, discount_factor=0.9, exploration_rate=0.1):
+    def __init__(self, learning_rate=0.1, discount_factor=0.9, exploration_rate=1.0):
         self.learning_rate = learning_rate
         self.discount_factor = discount_factor
         self.exploration_rate = exploration_rate
@@ -39,17 +39,17 @@ class RLAgent:
 
     def compute_future_value(self, state: str, player: str):
         """
-        If we think this puts the other player in a really good position it's not ideal for us.
-        If it doesn't put the other player in a good position does it put us in a good position?
+        Estimate the value of the next state, factoring in both the opponent's and our own best options.
+        Penalize states where the opponent has a strong move.
         """
-        other_player = "X" if player == "O" else "O"
-        other_players_next_actions = self.q_table.get(other_player, {}).get(state, {}).values()
-        if other_players_next_actions and max(other_players_next_actions) > 0:
-            return max(other_players_next_actions)
-        your_next_actions = self.q_table.get(player, {}).get(state, {}).values()
-        if your_next_actions and max(your_next_actions) > 0:
-            return max(your_next_actions)
-        return 0
+        opponent = "X" if player == "O" else "O"
+        opp_values = self.q_table.get(opponent, {}).get(state, {}).values()
+        if opp_values:
+            max_opp = max(opp_values, default=0)
+            if max_opp > 0:
+                return -max_opp  # Bad for us
+        our_values = self.q_table.get(player, {}).get(state, {}).values()
+        return max(our_values, default=0)
 
     def compute_action_from_q_values(self, state: str, player: str):
         """Compute the best action from Q-values for a given state."""
@@ -72,19 +72,17 @@ class RLAgent:
 
 
     def update(self, state: str, action: int, next_state: str, reward: float, done: bool, player: str):
-        """Update the Q-table using the Bellman equation."""
-        other_next_best = self.compute_future_value(next_state, player)
-        offset = -other_next_best * self.discount_factor
-        value = self.learning_rate * (reward + offset)
-        if player not in self.q_table:
-            self.q_table[player] = {state: {action: value}}
-        elif state not in self.q_table[player]:
-            self.q_table[player][state] = {action: value}
-        else:
-            if action not in self.q_table[player][state]:
-                self.q_table[player][state][action] = value
-            else:
-                self.q_table[player][state][action] += value
+        """
+        Update the Q-table using the Bellman equation.
+        Penalize next states where opponent has strong responses
+        """
+        next_score = self.compute_future_value(next_state, player)
+        offset = next_score * self.discount_factor
+        self.q_table.setdefault(player, {}).setdefault(state, {}).setdefault(action, 0)
+        self.q_table[player][state][action] = (
+            (1 - self.learning_rate) * self.q_table[player][state][action]
+            + self.learning_rate * (reward + offset)
+        )
 
 
 
@@ -174,6 +172,7 @@ def learn():
     # Decay exploration rate
     if done and agent.exploration_rate > 0.01:
         agent.exploration_rate *= 0.99
+        app.logger.info(f"Exploration rate updated to {agent.exploration_rate:.4f}")
 
     save_state()
 
