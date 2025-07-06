@@ -79,3 +79,4 @@ MANIFEST
 .pytest_cache/
 .tox/
 .mypy_cache/
+.ruff_cache/
