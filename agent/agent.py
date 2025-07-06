@@ -1,10 +1,24 @@
+from collections import defaultdict
 import os
 import json
 import random
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, g
+import time
 import logging
 
 app = Flask(__name__)
+
+@app.before_request
+def log_request_info():
+    g.start_time = time.time()
+    app.logger.info(f"Incoming request to endpoint: '{request.endpoint}'")
+
+@app.after_request
+def log_response_info(response):
+    if hasattr(g, 'start_time'):
+        duration = time.time() - g.start_time
+        app.logger.info(f"Request to endpoint '{request.endpoint}' processed in {duration:.4f} seconds.")
+    return response
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -16,60 +30,62 @@ STATE_FILE = "/data/agent_state.json"
 
 
 class RLAgent:
-    def __init__(self, learning_rate=0.1, discount_factor=0.9, exploration_rate=1.0):
+    def __init__(self, learning_rate=0.1, discount_factor=0.9, exploration_rate=0.1):
         self.learning_rate = learning_rate
         self.discount_factor = discount_factor
         self.exploration_rate = exploration_rate
+        # player -> state -> action -> Q-value
         self.q_table = {}
 
-    def get_q_value(self, state, action):
-        """Get Q-value for a state-action pair."""
-        return self.q_table.get(state, {}).get(str(action), 0.0)
+    def compute_future_value(self, state: str, player: str):
+        """
+        If we think this puts the other player in a really good position it's not ideal for us.
+        If it doesn't put the other player in a good position does it put us in a good position?
+        """
+        other_player = "X" if player == "O" else "O"
+        other_players_next_actions = self.q_table.get(other_player, {}).get(state, {}).values()
+        if other_players_next_actions and max(other_players_next_actions) > 0:
+            return max(other_players_next_actions)
+        your_next_actions = self.q_table.get(player, {}).get(state, {}).values()
+        if your_next_actions and max(your_next_actions) > 0:
+            return max(your_next_actions)
+        return 0
 
-    def compute_value_from_q_values(self, state):
-        """Compute the best value from Q-values for a given state."""
-        q_values = self.q_table.get(state, {})
-        if not q_values:
-            return 0.0
-        return max(q_values.values())
-
-    def compute_action_from_q_values(self, state):
+    def compute_action_from_q_values(self, state: str, player: str):
         """Compute the best action from Q-values for a given state."""
-        q_values = self.q_table.get(state, {})
-        if not q_values:
+        actions = self.q_table.get(player, {}).get(state, {})
+        actions_by_value = sorted(actions.items(), key=lambda item: item[1], reverse=True)
+        if not actions_by_value:
             return None
-        # q_values keys are strings, convert back to int
-        action = max(q_values, key=q_values.get)
-        return int(action)
+        logging.info(f"Actions for state {state} for player {player}: {actions_by_value[0][1]}")
+        return [action for action, value in actions_by_value if value == actions_by_value[0][1]]
 
-    def choose_action(self, state, valid_moves):
+    def choose_action(self, state: str, valid_moves: list, player: str):
         """Choose an action using an epsilon-greedy strategy."""
-        if not valid_moves:
-            return None
-
         if random.random() < self.exploration_rate:
             return random.choice(valid_moves)
+        actions = self.compute_action_from_q_values(state, player)
+        if actions:
+            return random.choice(actions)
         else:
-            q_values = {
-                move: self.get_q_value(state, move) for move in valid_moves
-            }
-            max_q = max(q_values.values())
-            # Get all actions with max_q value and choose one randomly
-            best_moves = [move for move, q in q_values.items() if q == max_q]
-            return random.choice(best_moves)
+            return random.choice(valid_moves)
 
-    def update(self, state, action, next_state, reward):
+
+    def update(self, state: str, action: int, next_state: str, reward: float, done: bool, player: str):
         """Update the Q-table using the Bellman equation."""
-        old_value = self.get_q_value(state, action)
-        next_max = self.compute_value_from_q_values(next_state)
+        other_next_best = self.compute_future_value(next_state, player)
+        offset = -other_next_best * self.discount_factor
+        value = self.learning_rate * (reward + offset)
+        if player not in self.q_table:
+            self.q_table[player] = {state: {action: value}}
+        elif state not in self.q_table[player]:
+            self.q_table[player][state] = {action: value}
+        else:
+            if action not in self.q_table[player][state]:
+                self.q_table[player][state][action] = value
+            else:
+                self.q_table[player][state][action] += value
 
-        new_value = old_value + self.learning_rate * (
-            reward + self.discount_factor * next_max - old_value
-        )
-
-        if state not in self.q_table:
-            self.q_table[state] = {}
-        self.q_table[state][str(action)] = new_value
 
 
 agent = RLAgent()
@@ -124,7 +140,7 @@ def get_move():
 
     # Use the agent to choose a move
     state_key = "".join(str(s) if s is not None else "-" for s in board)
-    move = agent.choose_action(state_key, valid_moves)
+    move = agent.choose_action(state_key, valid_moves, player)
 
     return jsonify({"move": move})
 
@@ -133,7 +149,6 @@ def learn():
     """Receives the outcome of a move and triggers the agent's learning process."""
     load_state()  # Load the latest Q-table
     data = request.get_json()
-    app.logger.info(f"Received learning data: {data}")
     if not data:
         return jsonify({"error": "Request must be JSON"}), 400
 
@@ -142,13 +157,19 @@ def learn():
     next_state = data.get("next_state")
     reward = data.get("reward")
     done = data.get("done")
+    player = data.get("player")
 
     if any(v is None for v in [state, action, next_state, reward, done]):
         return jsonify({"error": "Missing required fields"}), 400
 
-    app.logger.info(f"Learning from state: {state}, action: {action}, reward: {reward}")
-
-    agent.update(state, action, next_state, reward)
+    agent.update(
+        state=state,
+        action=action,
+        next_state=next_state,
+        reward=reward,
+        done=done,
+        player=player
+    )
 
     # Decay exploration rate
     if done and agent.exploration_rate > 0.01:

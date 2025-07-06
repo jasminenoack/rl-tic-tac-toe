@@ -106,8 +106,6 @@ function playTurn(board: Board, player: Player, move: number): Board {
     let reward = 0;
     if (winner && winner == player.symbol) {
         reward = 1;
-    } else if (winner == "draw") {
-        reward = 0.5
     } else if (winner && winner !== player.symbol) {
         reward = -1;
     }
