@@ -12,6 +12,7 @@ const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
 const AGENT_URL = 'http://agent:5001/get_move';
+const AGENT_LEARN_URL = 'http://agent:5001/learn';
 
 type SquareValue = 'X' | 'O' | null;
 type Board = SquareValue[];
@@ -21,6 +22,21 @@ type Board = SquareValue[];
 abstract class Player {
     constructor(public symbol: 'X' | 'O') {}
     abstract getMove(gameState: Board, move?: number): Promise<number | null>;
+
+    async learn(state: string, action: number, nextState: string, reward: number, done: boolean, player: string): Promise<void> {
+        try {
+            await axios.post(AGENT_LEARN_URL, {
+                state,
+                action,
+                next_state: nextState,
+                reward,
+                done,
+                player,
+            });
+        } catch (error) {
+            console.error("Error calling agent's learn endpoint:", (error as Error).message);
+        }
+    }
 }
 
 class HumanPlayer extends Player {
@@ -43,6 +59,8 @@ class RemoteAgentPlayer extends Player {
             return validMoves[Math.floor(Math.random() * validMoves.length)];
         }
     }
+
+
 }
 
 // --- WebSocket Logic ---
@@ -80,15 +98,39 @@ function checkWinner(board: Board): 'X' | 'O' | 'draw' | null {
     return null;
 }
 
+function playTurn(board: Board, player: Player, move: number): Board {
+    const stateBeforeMove = board.map(s => s === null ? '-' : s).join('');
+    const newBoard = [...board];
+    newBoard[move] = player.symbol;
+    const winner = checkWinner(newBoard);
+    let reward = 0;
+    if (winner && winner == player.symbol) {
+        reward = 1;
+    } else if (winner == "draw") {
+        reward = 0.5
+    } else if (winner && winner !== player.symbol) {
+        reward = -1;
+    }
+    player.learn(
+        stateBeforeMove,
+        move,
+        newBoard.map(s => s === null ? '-' : s).join(''),
+        reward,
+        winner !== null && winner !== 'draw',
+        player.symbol
+    );
+    return newBoard;
+}
+
 // --- API Endpoints ---
 
 app.post('/api/move', async (req: Request, res: Response) => {
-    const { board, move }: { board: Board, move: number } = req.body;
+    let { board, move }: { board: Board, move: number } = req.body;
     const human = new HumanPlayer('X');
     const agent = new RemoteAgentPlayer('O');
 
-    // Apply human move
-    board[move] = human.symbol;
+    board = playTurn(board, human, move);
+
     let winner = checkWinner(board);
     if (winner) {
         return res.json({ board, status: winner === 'draw' ? 'draw' : `${winner}-wins` });
@@ -96,8 +138,9 @@ app.post('/api/move', async (req: Request, res: Response) => {
 
     // Get agent move
     const agentMove = await agent.getMove(board);
+
     if (agentMove !== null) {
-        board[agentMove] = agent.symbol;
+        board = playTurn(board, agent, agentMove);
     }
     winner = checkWinner(board);
     if (winner) {
@@ -119,9 +162,11 @@ app.post('/api/start-agent-game', async (req: Request, res: Response) => {
 
     const gameLoop = setInterval(async () => {
         const move = await currentPlayer.getMove(board);
-        if (move !== null) {
-            board[move] = currentPlayer.symbol;
+        if (move === null) {
+            clearInterval(gameLoop);
+            return;
         }
+        board = playTurn(board, currentPlayer, move);
 
         const winner = checkWinner(board);
         if (winner) {
@@ -133,8 +178,7 @@ app.post('/api/start-agent-game', async (req: Request, res: Response) => {
 
         broadcast({ board, status });
         currentPlayer = (currentPlayer === player1) ? player2 : player1;
-
-    }, 1000);
+    }, 500);
 });
 
 app.post('/api/reset', (req: Request, res: Response) => {
