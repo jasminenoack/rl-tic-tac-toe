@@ -21,5 +21,5 @@ EXPOSE 5000
 ENV FLASK_APP=agent.py
 ENV FLASK_ENV=development
 
-# Run the command to start the Flask server
-CMD ["flask", "run", "--host=0.0.0.0", "--port=5001"]
+# Run the command to start the Gunicorn server
+CMD ["gunicorn", "--bind", "0.0.0.0:5001", "--access-logfile", "-", "agent:app"]

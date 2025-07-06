@@ -84,7 +84,7 @@ function App() {
         const response = await fetch(`${API_URL}/api/move`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ board: newBoard, move }),
+          body: JSON.stringify({ board: board, move }),
         });
         const data = await response.json();
         setBoard(data.board);
