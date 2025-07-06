@@ -31,7 +31,8 @@ Thumbs.db
 /server/node_modules
 
 # Build output
-/client/build
+/client/dist
+/client/.vite
 /dist
 /out
 

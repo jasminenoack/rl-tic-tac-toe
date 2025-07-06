@@ -1,5 +1,5 @@
 # Use an official Node.js runtime as a parent image
-FROM node:16
+FROM node:22
 
 # Set the working directory in the container
 WORKDIR /app
@@ -12,6 +12,9 @@ RUN npm install
 
 # Copy the rest of the application's code to the working directory
 COPY . .
+
+# Build the TypeScript code
+RUN npm run build
 
 # Make port 8080 available to the world outside this container
 EXPOSE 8080

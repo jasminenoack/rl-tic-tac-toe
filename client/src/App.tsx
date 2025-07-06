@@ -4,7 +4,14 @@ import './App.css';
 const API_URL = 'http://localhost:8080';
 const WS_URL = 'ws://localhost:8080';
 
-function Square({ value, onSquareClick }) {
+type SquareValue = 'X' | 'O' | null;
+
+interface SquareProps {
+  value: SquareValue;
+  onSquareClick: () => void;
+}
+
+function Square({ value, onSquareClick }: SquareProps) {
   return (
     <button className="square" onClick={onSquareClick}>
       {value}
@@ -12,8 +19,13 @@ function Square({ value, onSquareClick }) {
   );
 }
 
-function Board({ squares, onPlay }) {
-  function handleClick(i) {
+interface BoardProps {
+  squares: SquareValue[];
+  onPlay: (i: number) => void;
+}
+
+function Board({ squares, onPlay }: BoardProps) {
+  function handleClick(i: number) {
     if (squares[i] || checkWinner(squares)) {
       return;
     }
@@ -42,8 +54,8 @@ function Board({ squares, onPlay }) {
 }
 
 function App() {
-  const [board, setBoard] = useState(Array(9).fill(null));
-  const [status, setStatus] = useState("Your turn (X)");
+  const [board, setBoard] = useState<SquareValue[]>(Array(9).fill(null));
+  const [status, setStatus] = useState<string>("Your turn (X)");
 
   useEffect(() => {
     const ws = new WebSocket(WS_URL);
@@ -61,7 +73,7 @@ function App() {
     };
   }, []);
 
-  async function handlePlay(move) {
+  async function handlePlay(move: number) {
     const newBoard = board.slice();
     newBoard[move] = 'X';
     setBoard(newBoard);
@@ -121,7 +133,7 @@ function App() {
   );
 }
 
-function checkWinner(squares) {
+function checkWinner(squares: SquareValue[]): SquareValue {
     const lines = [
         [0, 1, 2], [3, 4, 5], [6, 7, 8],
         [0, 3, 6], [1, 4, 7], [2, 5, 8],
