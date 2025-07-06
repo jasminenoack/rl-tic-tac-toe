@@ -30,6 +30,12 @@ def save_state():
     app.logger.info(f"Saved agent state to {STATE_FILE}")
 
 
+@app.route("/health")
+def health_check():
+    """A simple health check endpoint."""
+    return "OK", 200
+
+
 @app.route("/get_move", methods=["POST"])
 def get_move():
     """
@@ -66,8 +72,3 @@ def get_move():
     return jsonify({"move": move})
 
 
-if __name__ == "__main__":
-    load_state()
-    # In a real scenario, you might want to save state periodically or on shutdown.
-    # For this simple skeleton, we'll just load on start.
-    app.run(host="0.0.0.0", port=5001)

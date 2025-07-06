@@ -8,6 +8,7 @@ WORKDIR /app
 COPY requirements.txt .
 
 # Install any needed packages specified in requirements.txt
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the rest of the application's code to the working directory
@@ -21,4 +22,4 @@ ENV FLASK_APP=agent.py
 ENV FLASK_ENV=development
 
 # Run the command to start the Flask server
-CMD ["flask", "run", "--host=0.0.0.0"]
+CMD ["flask", "run", "--host=0.0.0.0", "--port=5001"]

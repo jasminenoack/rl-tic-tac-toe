@@ -21,7 +21,8 @@ services:
       - ./server:/app
       - /app/node_modules
     depends_on:
-      - agent
+      agent:
+        condition: service_healthy
 
   agent:
     build:
@@ -31,6 +32,11 @@ services:
     volumes:
       - ./agent:/app
       - agent-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
 volumes:
   agent-data:
