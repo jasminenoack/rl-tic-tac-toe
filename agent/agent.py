@@ -37,52 +37,49 @@ class RLAgent:
         # player -> state -> action -> Q-value
         self.q_table = {}
 
-    def compute_future_value(self, state: str, player: str):
+    def build_board_key(self, board: list, player: str) -> str:
         """
-        Estimate the value of the next state, factoring in both the opponent's and our own best options.
-        Penalize states where the opponent has a strong move.
+        Generates a key for the board state
+        1 = current player, 0 = other player
         """
-        opponent = "X" if player == "O" else "O"
-        opp_values = self.q_table.get(opponent, {}).get(state, {}).values()
-        if opp_values:
-            max_opp = max(opp_values, default=0)
-            if max_opp > 0:
-                return -max_opp  # Bad for us
-        our_values = self.q_table.get(player, {}).get(state, {}).values()
-        return max(our_values, default=0)
+        board_key = ''.join(['1' if square == player else '0' if square is not None else '.' for square in board])
+        return f"{board_key}"
 
-    def compute_action_from_q_values(self, state: str, player: str):
-        """Compute the best action from Q-values for a given state."""
-        actions = self.q_table.get(player, {}).get(state, {})
-        actions_by_value = sorted(actions.items(), key=lambda item: item[1], reverse=True)
-        if not actions_by_value:
-            return None
-        logging.info(f"Actions for state {state} for player {player}: {actions_by_value[0][1]}")
-        return [action for action, value in actions_by_value if value == actions_by_value[0][1]]
-
-    def choose_action(self, state: str, valid_moves: list, player: str):
-        """Choose an action using an epsilon-greedy strategy."""
+    def choose_action(self, board: list, valid_moves: list, player: str) -> int:
         if random.random() < self.exploration_rate:
             return random.choice(valid_moves)
-        actions = self.compute_action_from_q_values(state, player)
-        if actions:
-            return random.choice(actions)
-        else:
-            return random.choice(valid_moves)
+
+        moves = self.q_table.get(self.build_board_key(board, player), {})
+        moves = {move: moves.get(move, 0) for move in valid_moves}
+
+        best_moves = [
+            move for move in valid_moves
+            if moves[move] == max(moves.values())
+        ]
+        return random.choice(best_moves)
 
 
-    def update(self, state: str, action: int, next_state: str, reward: float, done: bool, player: str):
-        """
-        Update the Q-table using the Bellman equation.
-        Penalize next states where opponent has strong responses
-        """
-        next_score = self.compute_future_value(next_state, player)
-        offset = next_score * self.discount_factor
-        self.q_table.setdefault(player, {}).setdefault(state, {}).setdefault(action, 0)
-        self.q_table[player][state][action] = (
-            (1 - self.learning_rate) * self.q_table[player][state][action]
-            + self.learning_rate * (reward + offset)
-        )
+
+    def learn(self, history: list, winner: str):
+        reward = 1
+        decay = 0.6
+
+        for i in range(len(history))[::-1]:
+            reward *= decay
+            turn = history[i]
+
+            board_key = self.build_board_key(board_at_turn(history, i), turn["player"])
+            if board_key not in self.q_table:
+                self.q_table[board_key] = defaultdict(float)
+
+            move = turn["turn"]
+            if move not in self.q_table[board_key]:
+                self.q_table[board_key][move] = 0.0
+
+            self.q_table[board_key][move] += self.learning_rate * reward * (1 if winner == turn["player"] else -1)
+
+        agent.exploration_rate *= 0.99
+
 
 
 
@@ -98,6 +95,9 @@ def load_state():
     else:
         app.logger.info("No state file found. Starting with a new Q-table.")
 
+def get_other_player(player: str) -> str:
+    """Returns the other player based on the current player."""
+    return "X" if player == "O" else "O"
 
 def save_state():
     """Saves the Q-table to the state file."""
@@ -112,67 +112,58 @@ def health_check():
     return "OK", 200
 
 
+def board_at_turn(history, turn):
+    """Returns the board state at a specific turn."""
+    board = [None] * 9
+    for i in range(turn):
+        if i < len(history):
+            board[history[i]["turn"]] = history[i]["player"]
+    return board
+
+
 @app.route("/get_move", methods=["POST"])
 def get_move():
-    """
-    Determines the agent's move.
-    For this skeleton, it just chooses a random valid move.
-    """
     load_state()  # Load the latest Q-table
     data = request.get_json()
     if not data:
         return jsonify({"error": "Request must be JSON"}), 400
-    board = data.get("board")
-    player = data.get("player")
+    if "history" not in data:
+        return jsonify({"error": "Missing 'history' field"}), 400
+    history = data["history"]
+    last_turn = history[-1] if history else None
+    last_player = last_turn["player"] if last_turn else "X"
+    current_player = get_other_player(last_player)
+    board = board_at_turn(history, len(history))
 
-    app.logger.info(f"Received request for player {player} with board: {board}")
-
-    if not board:
-        return jsonify({"error": "Board state not provided"}), 400
-
-    # Find all available (empty) squares
     valid_moves = [i for i, square in enumerate(board) if square is None]
-
     if not valid_moves:
         return jsonify({"error": "No valid moves available"}), 400
 
-    # Use the agent to choose a move
-    state_key = "".join(str(s) if s is not None else "-" for s in board)
-    move = agent.choose_action(state_key, valid_moves, player)
+    move = agent.choose_action(
+        board=board,
+        valid_moves=valid_moves,
+        player=current_player
+    )
 
     return jsonify({"move": move})
 
 @app.route("/learn", methods=["POST"])
 def learn():
-    """Receives the outcome of a move and triggers the agent's learning process."""
     load_state()  # Load the latest Q-table
     data = request.get_json()
     if not data:
         return jsonify({"error": "Request must be JSON"}), 400
+    if "history" not in data:
+        return jsonify({"error": "Missing 'history' field"}), 400
+    history = data["history"]
+    if "winner" not in data:
+        return jsonify({"error": "Missing 'winner' field"}), 400
+    winner = data["winner"]
 
-    state = data.get("state")
-    action = data.get("action")
-    next_state = data.get("next_state")
-    reward = data.get("reward")
-    done = data.get("done")
-    player = data.get("player")
-
-    if any(v is None for v in [state, action, next_state, reward, done]):
-        return jsonify({"error": "Missing required fields"}), 400
-
-    agent.update(
-        state=state,
-        action=action,
-        next_state=next_state,
-        reward=reward,
-        done=done,
-        player=player
+    agent.learn(
+        history=history,
+        winner=winner
     )
-
-    # Decay exploration rate
-    if done and agent.exploration_rate > 0.01:
-        agent.exploration_rate *= 0.99
-        app.logger.info(f"Exploration rate updated to {agent.exploration_rate:.4f}")
 
     save_state()
 

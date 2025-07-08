@@ -11,179 +11,100 @@ app.use(express.json());
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
-const AGENT_URL = 'http://agent:5001/get_move';
+const AGENT_MOVE_URL = 'http://agent:5001/get_move';
 const AGENT_LEARN_URL = 'http://agent:5001/learn';
 
 type SquareValue = 'X' | 'O' | null;
-type Board = SquareValue[];
 
-// --- Player Abstraction ---
+// --- Abstraction ---
 
-abstract class Player {
-    constructor(public symbol: 'X' | 'O') {}
-    abstract getMove(gameState: Board, move?: number): Promise<number | null>;
 
-    async learn(state: string, action: number, nextState: string, reward: number, done: boolean, player: string): Promise<void> {
-        try {
-            await axios.post(AGENT_LEARN_URL, {
-                state,
-                action,
-                next_state: nextState,
-                reward,
-                done,
-                player,
-            });
-        } catch (error) {
-            console.error("Error calling agent's learn endpoint:", (error as Error).message);
-        }
+async function getMove(history: Turn[]): Promise<number> {
+    try {
+        const response = await axios.post(AGENT_MOVE_URL, { history });
+        return response.data.move;
+    } catch (error) {
+        throw new Error(`Error getting move from agent: ${(error as Error).message}`);
     }
 }
 
-class HumanPlayer extends Player {
-    async getMove(gameState: Board, move: number): Promise<number> {
-        return move;
+async function learn(history: Turn[], winner: SquareValue): Promise<void> {
+    try {
+        await axios.post(AGENT_LEARN_URL, { history, winner });
+    } catch (error) {
+        throw new Error(`Error learning from agent: ${(error as Error).message}`);
     }
 }
 
-class RemoteAgentPlayer extends Player {
-    async getMove(gameState: Board): Promise<number | null> {
-        try {
-            const response = await axios.post(AGENT_URL, {
-                board: gameState,
-                player: this.symbol
-            });
-            return response.data.move;
-        } catch (error) {
-            console.error("Error contacting agent:", (error as Error).message);
-            const validMoves = gameState.map((s, i) => s === null ? i : null).filter(i => i !== null) as number[];
-            return validMoves[Math.floor(Math.random() * validMoves.length)];
-        }
-    }
-
-
+interface Turn {
+  player: string;
+  turn: number;
 }
 
-// --- WebSocket Logic ---
+class Board {
+    board: (SquareValue | null)[];
+    constructor(
+        public turns: Turn[]
+    ) {
+        this.board = [null, null, null, null, null, null, null, null, null];
+        turns.forEach(turn => {
+            this.board[turn.turn] = turn.player as SquareValue;
+        });
+    }
 
-wss.on('connection', (ws: WebSocket) => {
-    console.log('Client connected');
-    ws.on('close', () => console.log('Client disconnected'));
-});
-
-function broadcast(data: object) {
-    wss.clients.forEach((client: WebSocket) => {
-        if (client.readyState === WebSocket.OPEN) {
-            client.send(JSON.stringify(data));
+    won() {
+        const lines = [
+            [0, 1, 2], [3, 4, 5], [6, 7, 8], // rows
+            [0, 3, 6], [1, 4, 7], [2, 5, 8], // columns
+            [0, 4, 8], [2, 4, 6]  // diagonals
+        ];
+        for (let i = 0; i < lines.length; i++) {
+            const [a, b, c] = lines[i];
+            if (this.board[a] && this.board[a] === this.board[b] && this.board[a] === this.board[c]) {
+                return this.board[a];
+            }
         }
-    });
+        return null;
+    }
 }
 
-// --- Game Logic ---
 
-function checkWinner(board: Board): 'X' | 'O' | 'draw' | null {
-    const lines = [
-        [0, 1, 2], [3, 4, 5], [6, 7, 8], // rows
-        [0, 3, 6], [1, 4, 7], [2, 5, 8], // columns
-        [0, 4, 8], [2, 4, 6]  // diagonals
-    ];
-    for (let i = 0; i < lines.length; i++) {
-        const [a, b, c] = lines[i];
-        if (board[a] && board[a] === board[b] && board[a] === board[c]) {
-            return board[a] as 'X' | 'O';
-        }
-    }
-    if (board.every(square => square !== null)) {
-        return 'draw';
+async function runTurn(history: Turn[], res: Response): Promise<express.Response<any, Record<string, any>> | null> {
+    const board = new Board(history);
+    const winner = board.won();
+    if (board.won() || history.length === 9) {
+        await learn(history, winner);
+        return res.json({
+            history: history,
+            status: `${board.won()}-wins`,
+            winner: winner
+        });
     }
     return null;
-}
-
-function playTurn(board: Board, player: Player, move: number): Board {
-    const stateBeforeMove = board.map(s => s === null ? '-' : s).join('');
-    const newBoard = [...board];
-    newBoard[move] = player.symbol;
-    const winner = checkWinner(newBoard);
-    let reward = 0;
-    if (winner && winner == player.symbol) {
-        reward = 1;
-    } else if (winner && winner !== player.symbol) {
-        reward = -1;
-    }
-    player.learn(
-        stateBeforeMove,
-        move,
-        newBoard.map(s => s === null ? '-' : s).join(''),
-        reward,
-        winner !== null && winner !== 'draw',
-        player.symbol
-    );
-    return newBoard;
 }
 
 // --- API Endpoints ---
 
 app.post('/api/move', async (req: Request, res: Response) => {
-    let { board, move }: { board: Board, move: number } = req.body;
-    const human = new HumanPlayer('X');
-    const agent = new RemoteAgentPlayer('O');
+    const {history}: { history: Turn[] } = req.body;
+    let pontentialResponse = await runTurn(history, res);
+    if (pontentialResponse) {
+        return pontentialResponse;
+    }
+    console.log(pontentialResponse);
 
-    board = playTurn(board, human, move);
-
-    let winner = checkWinner(board);
-    if (winner) {
-        return res.json({ board, status: winner === 'draw' ? 'draw' : `${winner}-wins` });
+    const agentMove = await getMove(history);
+    const newHistory = [...history, { player: 'O', turn: agentMove }];
+    pontentialResponse = await runTurn(newHistory, res);
+    if (pontentialResponse) {
+        return pontentialResponse;
     }
 
-    // Get agent move
-    const agentMove = await agent.getMove(board);
-
-    if (agentMove !== null) {
-        board = playTurn(board, agent, agentMove);
-    }
-    winner = checkWinner(board);
-    if (winner) {
-        return res.json({ board, status: winner === 'draw' ? 'draw' : `${winner}-wins` });
-    }
-
-    res.json({ board, status: 'in-progress' });
-});
-
-app.post('/api/start-agent-game', async (req: Request, res: Response) => {
-    console.log("Starting Agent vs. Agent game...");
-    const player1 = new RemoteAgentPlayer('X');
-    const player2 = new RemoteAgentPlayer('O');
-    let board: Board = Array(9).fill(null);
-    let currentPlayer: Player = player1;
-    let status = 'in-progress';
-
-    res.status(200).json({ message: "Agent vs. Agent game started. Watch for WebSocket updates." });
-
-    const gameLoop = setInterval(async () => {
-        const move = await currentPlayer.getMove(board);
-        if (move === null) {
-            clearInterval(gameLoop);
-            return;
-        }
-        board = playTurn(board, currentPlayer, move);
-
-        const winner = checkWinner(board);
-        if (winner) {
-            status = winner === 'draw' ? 'draw' : `${winner}-wins`;
-            broadcast({ board, status });
-            clearInterval(gameLoop);
-            return;
-        }
-
-        broadcast({ board, status });
-        currentPlayer = (currentPlayer === player1) ? player2 : player1;
-    }, 500);
-});
-
-app.post('/api/reset', (req: Request, res: Response) => {
-    const board: Board = Array(9).fill(null);
-    const status = "Your turn (X)";
-    broadcast({ board, status });
-    res.json({ board, status });
+    res.json({
+        history: newHistory,
+        status: 'Your turn (X)',
+        winner: null
+    });
 });
 
 const PORT = 8080;

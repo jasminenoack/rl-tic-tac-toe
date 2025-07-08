@@ -20,17 +20,26 @@ function Square({ value, onSquareClick }: SquareProps) {
 }
 
 interface BoardProps {
-  squares: SquareValue[];
+  turns: Turn[];
   onPlay: (i: number) => void;
+  winner: string | null;
 }
 
-function Board({ squares, onPlay }: BoardProps) {
+function Board({ turns, onPlay, winner }: BoardProps) {
   function handleClick(i: number) {
-    if (squares[i] || checkWinner(squares)) {
+    if (squares[i]) {
+      return;
+    }
+    if (turns.length == 9 || winner) {
       return;
     }
     onPlay(i);
   }
+
+  const squares: SquareValue[] = Array(9).fill(null);
+  turns.forEach(turn => {
+    squares[turn.turn] = turn.player as SquareValue;
+  });
 
   return (
     <div>
@@ -53,30 +62,30 @@ function Board({ squares, onPlay }: BoardProps) {
   );
 }
 
+interface Turn {
+  player: string;
+  turn: number;
+}
+
 function App() {
-  const [board, setBoard] = useState<SquareValue[]>(Array(9).fill(null));
   const [status, setStatus] = useState<string>("Your turn (X)");
+  const [turns, setTurns] = useState<Turn[]>([]);
+  const [winner, setWinner] = useState<SquareValue>(null);
 
-  useEffect(() => {
-    const ws = new WebSocket(WS_URL);
-    ws.onopen = () => console.log("WebSocket connected");
-    ws.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      console.log("Received from WebSocket:", data);
-      setBoard(data.board);
-      setStatus(data.status);
-    };
-    ws.onclose = () => console.log("WebSocket disconnected");
-
-    return () => {
-      ws.close();
-    };
-  }, []);
 
   async function handlePlay(move: number) {
-    const newBoard = board.slice();
-    newBoard[move] = 'X';
-    setBoard(newBoard);
+    const lastTurn = turns[turns.length - 1];
+    if (lastTurn && lastTurn.player === 'X') {
+      setStatus("You already played. Wait for your opponent.");
+      return;
+    }
+    if (winner) {
+      setStatus("Game over. Please start a new game.");
+      return;
+    }
+    const newTurns = [...turns, { player: 'X', turn: move }];
+    setTurns(newTurns);
+
     setStatus("Opponent is thinking...");
 
     setTimeout(async () => {
@@ -84,11 +93,12 @@ function App() {
         const response = await fetch(`${API_URL}/api/move`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ board: board, move }),
+          body: JSON.stringify({ history: newTurns }),
         });
         const data = await response.json();
-        setBoard(data.board);
         setStatus(data.status);
+        setTurns(data.history);
+        setWinner(data.winner);
       } catch (error) {
         console.error("Error making move:", error);
         setStatus("Error: Could not connect to server.");
@@ -96,56 +106,25 @@ function App() {
     }, 500);
   }
 
-  async function startAgentGame() {
-    try {
-      await fetch(`${API_URL}/api/start-agent-game`, { method: 'POST' });
-      setStatus("Agent vs. Agent game started. Watching...");
-    } catch (error) {
-      console.error("Error starting agent game:", error);
-      setStatus("Error: Could not start agent game.");
-    }
-  }
-
-  async function handlePlayAgain() {
-    try {
-      const response = await fetch(`${API_URL}/api/reset`, { method: 'POST' });
-      const data = await response.json();
-      setBoard(data.board);
-      setStatus(data.status);
-    } catch (error) {
-      console.error("Error resetting game:", error);
-      setStatus("Error: Could not reset game.");
-    }
+  function handlePlayAgain() {
+      setTurns([]);
+      setWinner(null);
+      setStatus("Your turn (X)");
   }
 
    return (
     <div className="game">
       <h1>Tic-Tac-Toe RL</h1>
       <div className="game-board">
-        <Board squares={board} onPlay={handlePlay} />
+        <Board turns={turns} onPlay={handlePlay} winner={winner} />
       </div>
       <div className="game-info">
         <div>{status}</div>
-        <button onClick={startAgentGame}>Watch Agents Play</button>
+        {/* <button onClick={startAgentGame}>Watch Agents Play</button> */}
         <button onClick={handlePlayAgain}>Play Again</button>
       </div>
     </div>
   );
-}
-
-function checkWinner(squares: SquareValue[]): SquareValue {
-    const lines = [
-        [0, 1, 2], [3, 4, 5], [6, 7, 8],
-        [0, 3, 6], [1, 4, 7], [2, 5, 8],
-        [0, 4, 8], [2, 4, 6]
-    ];
-    for (let i = 0; i < lines.length; i++) {
-        const [a, b, c] = lines[i];
-        if (squares[a] && squares[a] === squares[b] && squares[a] === squares[c]) {
-            return squares[a];
-        }
-    }
-    return null;
 }
 
 
