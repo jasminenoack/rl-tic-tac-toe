@@ -30,10 +30,11 @@ STATE_FILE = "/data/agent_state.json"
 
 
 class RLAgent:
-    def __init__(self, learning_rate=0.1, discount_factor=0.9, exploration_rate=1.0):
+    def __init__(self, learning_rate=0.1, discount_factor=0.9, exploration_rate=0.2):
         self.learning_rate = learning_rate
         self.discount_factor = discount_factor
         self.exploration_rate = exploration_rate
+        self.min_exploration_rate = 0.01
         # player -> state -> action -> Q-value
         self.q_table = {}
 
@@ -61,6 +62,7 @@ class RLAgent:
 
 
     def learn(self, history: list, winner: str):
+        logging.info(f"Exploration rate before learning: {self.exploration_rate}")
         reward = 1
         decay = 0.6
 
@@ -78,7 +80,10 @@ class RLAgent:
 
             self.q_table[board_key][str(move)] += self.learning_rate * reward * (1 if winner == turn["player"] else -1)
 
-        agent.exploration_rate *= 0.99
+        self.exploration_rate = max(
+            self.min_exploration_rate,
+            self.exploration_rate * 0.99
+        )
 
 
 

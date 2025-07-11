@@ -42,3 +42,32 @@
   font-size: 18px;
   cursor: pointer;
 }
+.scoreboard-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 20px;
+}
+
+.scoreboard-table th,
+.scoreboard-table td {
+  border: 1px solid #ddd;
+  padding: 8px;
+  width: 100px; /* Set a fixed width for columns */
+}
+
+.scoreboard-table th {
+  padding-top: 12px;
+  padding-bottom: 12px;
+  text-align: left;
+  background-color: #f2f2f2;
+  color: black;
+}
+
+.scoreboard-table td {
+  text-align: right; /* Right-align numbers */
+}
+
+.scoreboard-table td:first-child {
+  text-align: left; /* Left-align the metric names */
+  font-weight: bold;
+}

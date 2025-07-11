@@ -66,17 +66,101 @@ interface Turn {
   turn: number;
 }
 
+interface ScoreboardProps {
+  gameHistory: Array<'X' | 'O' | 'Draw'>;
+}
+
+function Scoreboard({ gameHistory }: ScoreboardProps) {
+  console.log("Game History:", gameHistory);
+  const calculateStats = (games: Array<'X' | 'O' | 'Draw'>) => {
+    return games.reduce((acc, winner) => {
+      if (winner === 'X') acc.xWins++;
+      if (winner === 'O') acc.oWins++;
+      if (winner === 'Draw') acc.draws++;
+      return acc;
+    }, { xWins: 0, oWins: 0, draws: 0 });
+  };
+
+  const totalStats = calculateStats(gameHistory);
+  const last100Stats = gameHistory.length >= 100 ? calculateStats(gameHistory.slice(-100)) : null;
+  const last50Stats = gameHistory.length >= 50 ? calculateStats(gameHistory.slice(-50)) : null;
+  const last25Stats = gameHistory.length >= 25 ? calculateStats(gameHistory.slice(-25)) : null;
+  const last10Stats = gameHistory.length >= 10 ? calculateStats(gameHistory.slice(-10)) : null;
+
+  return (
+    <div className="scoreboard">
+      <h2>Scoreboard</h2>
+      <table className="scoreboard-table">
+        <thead>
+          <tr>
+            <th>Metric</th>
+            <th>Total</th>
+            {last100Stats && <th>Last 100</th>}
+            {last50Stats && <th>Last 50</th>}
+            {last25Stats && <th>Last 25</th>}
+            {last10Stats && <th>Last 10</th>}
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>X Wins</td>
+            <td>{totalStats.xWins}</td>
+            {last100Stats && <td>{last100Stats.xWins}</td>}
+            {last50Stats && <td>{last50Stats.xWins}</td>}
+            {last25Stats && <td>{last25Stats.xWins}</td>}
+            {last10Stats && <td>{last10Stats.xWins}</td>}
+          </tr>
+          <tr>
+            <td>O Wins</td>
+            <td>{totalStats.oWins}</td>
+            {last100Stats && <td>{last100Stats.oWins}</td>}
+            {last50Stats && <td>{last50Stats.oWins}</td>}
+            {last25Stats && <td>{last25Stats.oWins}</td>}
+            {last10Stats && <td>{last10Stats.oWins}</td>}
+          </tr>
+          <tr>
+            <td>Draws</td>
+            <td>{totalStats.draws}</td>
+            {last100Stats && <td>{last100Stats.draws}</td>}
+            {last50Stats && <td>{last50Stats.draws}</td>}
+            {last25Stats && <td>{last25Stats.draws}</td>}
+            {last10Stats && <td>{last10Stats.draws}</td>}
+          </tr>
+          <tr>
+            <td>Draw %</td>
+            <td>{gameHistory.length > 0 ? `${((totalStats.draws / gameHistory.length) * 100).toFixed(2)}%` : '0.00%'}</td>
+            {last100Stats && <td>{`${last100Stats.draws}%`}</td>}
+            {last50Stats && <td>{`${(last50Stats.draws / 50 * 100).toFixed(2)}%`}</td>}
+            {last25Stats && <td>{`${(last25Stats.draws / 25 * 100).toFixed(2)}%`}</td>}
+            {last10Stats && <td>{`${(last10Stats.draws / 10 * 100).toFixed(2)}%`}</td>}
+          </tr>
+          <tr>
+            <td>Total Games</td>
+            <td>{gameHistory.length}</td>
+            {last100Stats && <td>100</td>}
+            {last50Stats && <td>50</td>}
+            {last25Stats && <td>25</td>}
+            {last10Stats && <td>10</td>}
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function App() {
   const [status, setStatus] = useState<string>("Your turn (X)");
   const [turns, setTurns] = useState<Turn[]>([]);
   const [winner, setWinner] = useState<SquareValue>(null);
   const [aiPlaying, setAiPlaying] = useState<boolean>(false);
   const [continuousPlay, setContinuousPlay] = useState<boolean>(false);
+  const [gameHistory, setGameHistory] = useState<Array<'X' | 'O' | 'Draw'>>([]);
   const continuousPlayRef = useRef(continuousPlay);
 
   useEffect(() => {
     continuousPlayRef.current = continuousPlay;
   }, [continuousPlay]);
+
 
 
   async function handlePlay(move: number) {
@@ -108,6 +192,11 @@ function App() {
         setStatus(data.status);
         setTurns(data.history);
         setWinner(data.winner);
+        if (data.winner) {
+          setGameHistory(prev => [...prev, data.winner]);
+        } else if (data.history.length === 9) {
+          setGameHistory(prev => [...prev, 'Draw']);
+        }
       } catch (error) {
         console.error("Error making move:", error);
         setStatus("Error: Could not connect to server.");
@@ -135,6 +224,12 @@ function App() {
         }
         if (turnNumber >= data.history.length) {
           clearInterval(interval);
+          setWinner(data.winner);
+          if (data.winner) {
+            setGameHistory(prev => [...prev, data.winner]);
+          } else if (data.history.length === 9) {
+            setGameHistory(prev => [...prev, 'Draw']);
+          }
           if (!continuousPlayRef.current) {
             setStatus(`${data.status}\b AI finished, play or watch again.`);
             setAiPlaying(false);
@@ -142,10 +237,10 @@ function App() {
             setStatus(data.status)
             setTimeout(() => {
               playAIGame();
-            }, 1000);
+            }, 500);
           }
         }
-      }, 500);
+      }, 200);
     } catch (error) {
       console.error("Error starting AI game:", error);
       setStatus("Error: Could not connect to server.");
@@ -181,6 +276,7 @@ function App() {
         <button onClick={constantAIGames} disabled={continuousPlay}>Continuous</button>
         <button onClick={stopAIGames} disabled={!continuousPlay}>StopContinuous</button>
       </div>
+      <Scoreboard gameHistory={gameHistory} />
     </div>
   );
 }
