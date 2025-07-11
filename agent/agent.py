@@ -117,19 +117,12 @@ class RLAgent:
 
         canonical_board, transform_id = get_canonical_form(board)
         board_key = self.build_board_key(canonical_board, player)
-
         q_values = self.q_table.get(board_key, {})
 
-
-        # If no Q-values are known for this state, choose a random valid move
-        if not q_values:
-            return random.choice(valid_moves)
-
-        # Filter for valid moves in the canonical representation
         canonical_valid_moves = [transform_action(m, transform_id) for m in valid_moves]
 
-        # Consider only the Q-values for moves that are currently valid
-        valid_q_values = {m_str: q for m_str, q in q_values.items() if int(m_str) in canonical_valid_moves}
+        # Encourage exploration by defaulting to a neutral Q-value for unseen moves.
+        valid_q_values = {move: q_values.get(str(move), 0.0) for move in canonical_valid_moves}
 
         if not valid_q_values:
             return random.choice(valid_moves)
@@ -137,9 +130,10 @@ class RLAgent:
         max_q = max(valid_q_values.values())
 
         best_canonical_moves = [
-            int(m_str) for m_str, q in valid_q_values.items() if q == max_q
+            move for move, q in valid_q_values.items() if q == max_q
         ]
 
+        # This check is likely redundant now but kept for safety.
         if not best_canonical_moves:
             return random.choice(valid_moves)
 
