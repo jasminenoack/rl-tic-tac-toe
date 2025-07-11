@@ -148,6 +148,48 @@ function Scoreboard({ gameHistory }: ScoreboardProps) {
   );
 }
 
+interface QTableDisplayProps {
+  qTable: any;
+}
+
+function QTableDisplay({ qTable }: QTableDisplayProps) {
+  if (!qTable) {
+    return <div>Loading Q-Table...</div>;
+  }
+
+  const getHeatmapColor = (value: number) => {
+    const normalizedValue = (value + 1) / 2;
+    const hue = normalizedValue * 120;
+    return `hsl(${hue}, 100%, 50%)`;
+  };
+
+  return (
+    <div className="q-table-display">
+      <h2>Q-Table Visualization</h2>
+      <div className="q-table-container">
+        {Object.entries(qTable).map(([boardKey, actions]) => (
+          <div key={boardKey} className="q-table-board">
+            <div className="board-representation">
+              {boardKey.split('').map((char, index) => (
+                <div key={index} className={`mini-square ${char === '1' ? 'player-one' : char === '0' ? 'player-two' : ''}`}>
+                  {char}
+                </div>
+              ))}
+            </div>
+            <div className="action-values">
+              {Object.entries(actions as any).map(([action, value]) => (
+                <div key={action} className="action-value" style={{ backgroundColor: getHeatmapColor(value as number) }}>
+                  {action}: {(value as number).toFixed(2)}
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function App() {
   const [status, setStatus] = useState<string>("Your turn (X)");
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -155,11 +197,29 @@ function App() {
   const [aiPlaying, setAiPlaying] = useState<boolean>(false);
   const [continuousPlay, setContinuousPlay] = useState<boolean>(false);
   const [gameHistory, setGameHistory] = useState<Array<'X' | 'O' | 'Draw'>>([]);
+  const [qTable, setQTable] = useState<any>(null);
   const continuousPlayRef = useRef(continuousPlay);
 
   useEffect(() => {
     continuousPlayRef.current = continuousPlay;
   }, [continuousPlay]);
+
+  useEffect(() => {
+    const fetchQTable = async () => {
+      try {
+        const response = await fetch(`${API_URL}/api/q-table`);
+        const data = await response.json();
+        setQTable(data);
+      } catch (error) {
+        console.error("Error fetching Q-table:", error);
+      }
+    };
+
+    const intervalId = setInterval(fetchQTable, 3000);
+    fetchQTable();
+
+    return () => clearInterval(intervalId);
+  }, []);
 
 
 
@@ -277,6 +337,7 @@ function App() {
         <button onClick={stopAIGames} disabled={!continuousPlay}>StopContinuous</button>
       </div>
       <Scoreboard gameHistory={gameHistory} />
+      <QTableDisplay qTable={qTable} />
     </div>
   );
 }

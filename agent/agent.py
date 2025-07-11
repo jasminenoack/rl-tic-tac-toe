@@ -151,7 +151,7 @@ class RLAgent:
 
     def learn(self, history: list, winner: str):
         logging.info(f"Exploration rate before learning: {self.exploration_rate}")
-        reward = 1
+        reward = 1 if winner else 0
         decay = 0.6
 
         for i in range(len(history))[::-1]:
@@ -280,8 +280,14 @@ def index():
     load_state()
     return jsonify(agent.q_table)
 
+@app.route("/get_q_table", methods=["GET"])
+def get_q_table():
+    """Returns the agent's Q-table."""
+    load_state()
+    return jsonify(agent.q_table)
+
 
 if __name__ == "__main__":
     load_state()
-    app.run(host="0.0.0.0", port=5000)
+    app.run(host="0.0.0.0", port=5001)
 

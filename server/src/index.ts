@@ -13,6 +13,7 @@ const wss = new WebSocketServer({ server });
 
 const AGENT_MOVE_URL = 'http://agent:5001/get_move';
 const AGENT_LEARN_URL = 'http://agent:5001/learn';
+const AGENT_Q_TABLE_URL = 'http://agent:5001/get_q_table';
 
 type SquareValue = 'X' | 'O' | null;
 
@@ -40,6 +41,15 @@ async function learn(history: Turn[], winner: SquareValue): Promise<void> {
         await axios.post(AGENT_LEARN_URL, { history, winner });
     } catch (error) {
         throw new Error(`Error learning from agent: ${(error as Error).message}`);
+    }
+}
+
+async function getQTable(): Promise<any> {
+    try {
+        const response = await axios.get(AGENT_Q_TABLE_URL);
+        return response.data;
+    } catch (error) {
+        throw new Error(`Error getting q-table from agent: ${(error as Error).message}`);
     }
 }
 
@@ -143,6 +153,15 @@ app.post('/api/game', async (req: Request, res: Response) => {
             winner: null
         }
     )
+});
+
+app.get('/api/q-table', async (req: Request, res: Response) => {
+    try {
+        const qTable = await getQTable();
+        res.json(qTable);
+    } catch (error) {
+        res.status(500).json({ error: (error as Error).message });
+    }
 });
 
 const PORT = 8080;
