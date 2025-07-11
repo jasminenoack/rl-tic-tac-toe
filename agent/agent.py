@@ -28,9 +28,74 @@ STATE_FILE = "/data/agent_state.json"
 
 # The agent's "brain" is encapsulated in the RLAgent class
 
+# --- Symmetry Helper Functions ---
+
+def _transform(r, c, transform_id):
+    # apply flip
+    if transform_id >= 4:
+        c = 2 - c
+    # apply rotation
+    rotations = transform_id % 4
+    for _ in range(rotations):
+        r, c = c, 2 - r
+    return r, c
+
+def _untransform(r, c, transform_id):
+    # apply inverse rotation
+    rotations = transform_id % 4
+    for _ in range(rotations):
+        r, c = 2 - c, r
+    # apply inverse flip (which is the same flip)
+    if transform_id >= 4:
+        c = 2 - c
+    return r, c
+
+def transform_board(board, transform_id):
+    new_board = [None] * 9
+    for i in range(9):
+        r, c = i // 3, i % 3
+        tr, tc = _transform(r, c, transform_id)
+        new_board[tr * 3 + tc] = board[i]
+    return new_board
+
+def transform_action(action, transform_id):
+    r, c = action // 3, action % 3
+    tr, tc = _transform(r, c, transform_id)
+    return tr * 3 + tc
+
+def untransform_action(action, transform_id):
+    r, c = action // 3, action % 3
+    tr, tc = _untransform(r, c, transform_id)
+    return tr * 3 + tc
+
+def get_canonical_form(board: list):
+    """
+    Finds the canonical representation of a board state.
+    Returns the canonical board and the transform_id that creates it.
+    """
+    symmetries = []
+    for i in range(8):
+        symmetries.append(transform_board(board, i))
+
+    # Use the string representation to find the lexicographically smallest board
+    # We replace None with '.' to make sorting work consistently
+    canonical_board_str = min("".join(x or '.' for x in b) for b in symmetries)
+
+    # Find the transform_id that produced this canonical board
+    transform_id = 0 # Default to 0
+    canonical_board = symmetries[0]
+    for i in range(8):
+        b_str = "".join(x or '.' for x in symmetries[i])
+        if b_str == canonical_board_str:
+            transform_id = i
+            canonical_board = symmetries[i]
+            break
+
+    return canonical_board, transform_id
+
 
 class RLAgent:
-    def __init__(self, learning_rate=0.1, discount_factor=0.9, exploration_rate=0.2):
+    def __init__(self, learning_rate=0.1, discount_factor=0.9, exploration_rate=0.5):
         self.learning_rate = learning_rate
         self.discount_factor = discount_factor
         self.exploration_rate = exploration_rate
@@ -50,15 +115,38 @@ class RLAgent:
         if random.random() < self.exploration_rate:
             return random.choice(valid_moves)
 
-        moves = self.q_table.get(self.build_board_key(board, player), {})
-        moves = {move: moves.get(move, 0) for move in valid_moves}
+        canonical_board, transform_id = get_canonical_form(board)
+        board_key = self.build_board_key(canonical_board, player)
 
-        best_moves = [
-            move for move in valid_moves
-            if moves[move] == max(moves.values())
+        q_values = self.q_table.get(board_key, {})
+
+
+        # If no Q-values are known for this state, choose a random valid move
+        if not q_values:
+            return random.choice(valid_moves)
+
+        # Filter for valid moves in the canonical representation
+        canonical_valid_moves = [transform_action(m, transform_id) for m in valid_moves]
+
+        # Consider only the Q-values for moves that are currently valid
+        valid_q_values = {m_str: q for m_str, q in q_values.items() if int(m_str) in canonical_valid_moves}
+
+        if not valid_q_values:
+            return random.choice(valid_moves)
+
+        max_q = max(valid_q_values.values())
+
+        best_canonical_moves = [
+            int(m_str) for m_str, q in valid_q_values.items() if q == max_q
         ]
-        return random.choice(best_moves)
 
+        if not best_canonical_moves:
+            return random.choice(valid_moves)
+
+        best_canonical_move = random.choice(best_canonical_moves)
+
+        # Translate the best canonical move back to a move on the original board
+        return untransform_action(best_canonical_move, transform_id)
 
 
     def learn(self, history: list, winner: str):
@@ -69,16 +157,20 @@ class RLAgent:
         for i in range(len(history))[::-1]:
             reward *= decay
             turn = history[i]
+            player = turn["player"]
+            move = turn["turn"]
+            board = board_at_turn(history, i)
 
-            board_key = self.build_board_key(board_at_turn(history, i), turn["player"])
+            # Convert the board state to its canonical form before learning
+            canonical_board, transform_id = get_canonical_form(board)
+            canonical_move = transform_action(move, transform_id)
+            board_key = self.build_board_key(canonical_board, player)
+
             if board_key not in self.q_table:
                 self.q_table[board_key] = defaultdict(float)
 
-            move = turn["turn"]
-            if move not in self.q_table[board_key]:
-                self.q_table[board_key][str(move)] = 0.0
-
-            self.q_table[board_key][str(move)] += self.learning_rate * reward * (1 if winner == turn["player"] else -1)
+            update_value = self.learning_rate * reward * (1 if winner == player else -1)
+            self.q_table[board_key][str(canonical_move)] += update_value
 
         self.exploration_rate = max(
             self.min_exploration_rate,
@@ -86,16 +178,23 @@ class RLAgent:
         )
 
 
-
-
 agent = RLAgent()
+
+
+def convert_q_table(loaded_q_table):
+    """Converts a loaded Q-table from dicts to defaultdicts."""
+    new_q_table = {}
+    for board_key, moves in loaded_q_table.items():
+        new_q_table[board_key] = defaultdict(float, moves)
+    return new_q_table
 
 
 def load_state():
     """Loads the Q-table from the state file if it exists."""
     if os.path.exists(STATE_FILE):
         with open(STATE_FILE, "r") as f:
-            agent.q_table = json.load(f)
+            loaded_q = json.load(f)
+            agent.q_table = convert_q_table(loaded_q)
         app.logger.info(f"Loaded agent state from {STATE_FILE}")
     else:
         app.logger.info("No state file found. Starting with a new Q-table.")
