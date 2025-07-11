@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import './App.css';
 
 const API_URL = 'http://localhost:8080';
@@ -71,6 +71,12 @@ function App() {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [winner, setWinner] = useState<SquareValue>(null);
   const [aiPlaying, setAiPlaying] = useState<boolean>(false);
+  const [continuousPlay, setContinuousPlay] = useState<boolean>(false);
+  const continuousPlayRef = useRef(continuousPlay);
+
+  useEffect(() => {
+    continuousPlayRef.current = continuousPlay;
+  }, [continuousPlay]);
 
 
   async function handlePlay(move: number) {
@@ -113,6 +119,7 @@ function App() {
     setAiPlaying(true);
     setStatus("AI is playing...");
     setTurns([]);
+    setWinner(null);
     try {
       const response = await fetch(`${API_URL}/api/game`, {
         method: 'POST',
@@ -128,14 +135,30 @@ function App() {
         }
         if (turnNumber >= data.history.length) {
           clearInterval(interval);
-          setStatus(`${data.status}\b AI finished, play or watch again.`);
-          setAiPlaying(false);
+          if (!continuousPlayRef.current) {
+            setStatus(`${data.status}\b AI finished, play or watch again.`);
+            setAiPlaying(false);
+          } else {
+            setStatus(data.status)
+            setTimeout(() => {
+              playAIGame();
+            }, 1000);
+          }
         }
       }, 500);
     } catch (error) {
       console.error("Error starting AI game:", error);
       setStatus("Error: Could not connect to server.");
     }
+  }
+
+  function constantAIGames() {
+    setContinuousPlay(true);
+    playAIGame()
+  }
+
+  function stopAIGames() {
+    setContinuousPlay(false);
   }
 
   function handlePlayAgain() {
@@ -155,6 +178,8 @@ function App() {
         {/* <button onClick={startAgentGame}>Watch Agents Play</button> */}
         <button onClick={handlePlayAgain}>Play Again</button>
         <button onClick={playAIGame}>Watch AI</button>
+        <button onClick={constantAIGames} disabled={continuousPlay}>Continuous</button>
+        <button onClick={stopAIGames} disabled={!continuousPlay}>StopContinuous</button>
       </div>
     </div>
   );
