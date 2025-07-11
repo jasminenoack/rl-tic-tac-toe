@@ -18,11 +18,18 @@ type SquareValue = 'X' | 'O' | null;
 
 // --- Abstraction ---
 
+interface Move {
+    player: SquareValue;
+    turn: number;
+}
 
-async function getMove(history: Turn[]): Promise<number> {
+async function getMove(history: Turn[]): Promise<Move> {
     try {
         const response = await axios.post(AGENT_MOVE_URL, { history });
-        return response.data.move;
+        return {
+            player: response.data.player as SquareValue,
+            turn: response.data.move as number
+        };
     } catch (error) {
         throw new Error(`Error getting move from agent: ${(error as Error).message}`);
     }
@@ -37,7 +44,7 @@ async function learn(history: Turn[], winner: SquareValue): Promise<void> {
 }
 
 interface Turn {
-  player: string;
+  player: SquareValue;
   turn: number;
 }
 
@@ -74,9 +81,15 @@ async function runTurn(history: Turn[], res: Response): Promise<express.Response
     const winner = board.won();
     if (board.won() || history.length === 9) {
         await learn(history, winner);
+
+        let status = 'Game ended in a draw.';
+        if (winner) {
+            status = (`Winner: ${winner}`);
+        }
+
         return res.json({
             history: history,
-            status: `${board.won()}-wins`,
+            status: status,
             winner: winner
         });
     }
@@ -93,8 +106,10 @@ app.post('/api/move', async (req: Request, res: Response) => {
     }
     console.log(pontentialResponse);
 
-    const agentMove = await getMove(history);
-    const newHistory = [...history, { player: 'O', turn: agentMove }];
+    const move = await getMove(history);
+    const agentMove = move.turn;
+    const player = move.player;
+    const newHistory = [...history, { player, turn: agentMove }];
     pontentialResponse = await runTurn(newHistory, res);
     if (pontentialResponse) {
         return pontentialResponse;
@@ -105,6 +120,29 @@ app.post('/api/move', async (req: Request, res: Response) => {
         status: 'Your turn (X)',
         winner: null
     });
+});
+
+app.post('/api/game', async (req: Request, res: Response) => {
+    const history: Turn[] = [];
+    let won: boolean = false;
+
+    while (!won && history.length < 9) {
+        const move = await getMove(history);
+        const agentMove = move.turn;
+        const player = move.player;
+        history.push({ player, turn: agentMove });
+        const pontentialResponse = await runTurn(history, res);
+        if (pontentialResponse) {
+            return pontentialResponse;
+        }
+    }
+
+    res.json(
+        {
+            history: history,
+            winner: null
+        }
+    )
 });
 
 const PORT = 8080;

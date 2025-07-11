@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import './App.css';
 
 const API_URL = 'http://localhost:8080';
-const WS_URL = 'ws://localhost:8080';
 
 type SquareValue = 'X' | 'O' | null;
 
@@ -71,6 +70,7 @@ function App() {
   const [status, setStatus] = useState<string>("Your turn (X)");
   const [turns, setTurns] = useState<Turn[]>([]);
   const [winner, setWinner] = useState<SquareValue>(null);
+  const [aiPlaying, setAiPlaying] = useState<boolean>(false);
 
 
   async function handlePlay(move: number) {
@@ -78,6 +78,9 @@ function App() {
     if (lastTurn && lastTurn.player === 'X') {
       setStatus("You already played. Wait for your opponent.");
       return;
+    }
+    if (aiPlaying) {
+      setStatus("Please wait stop the AI first.");
     }
     if (winner) {
       setStatus("Game over. Please start a new game.");
@@ -106,6 +109,35 @@ function App() {
     }, 500);
   }
 
+  async function playAIGame() {
+    setAiPlaying(true);
+    setStatus("AI is playing...");
+    setTurns([]);
+    try {
+      const response = await fetch(`${API_URL}/api/game`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const data = await response.json();
+      let turnNumber = 0;
+      const interval = setInterval(() => {
+        if (turnNumber < data.history.length) {
+          const turn = data.history[turnNumber];
+          setTurns(prevTurns => [...prevTurns, turn]);
+          turnNumber++;
+        }
+        if (turnNumber >= data.history.length) {
+          clearInterval(interval);
+          setStatus(`${data.status}\b AI finished, play or watch again.`);
+          setAiPlaying(false);
+        }
+      }, 500);
+    } catch (error) {
+      console.error("Error starting AI game:", error);
+      setStatus("Error: Could not connect to server.");
+    }
+  }
+
   function handlePlayAgain() {
       setTurns([]);
       setWinner(null);
@@ -122,6 +154,7 @@ function App() {
         <div>{status}</div>
         {/* <button onClick={startAgentGame}>Watch Agents Play</button> */}
         <button onClick={handlePlayAgain}>Play Again</button>
+        <button onClick={playAIGame}>Watch AI</button>
       </div>
     </div>
   );

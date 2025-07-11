@@ -74,9 +74,9 @@ class RLAgent:
 
             move = turn["turn"]
             if move not in self.q_table[board_key]:
-                self.q_table[board_key][move] = 0.0
+                self.q_table[board_key][str(move)] = 0.0
 
-            self.q_table[board_key][move] += self.learning_rate * reward * (1 if winner == turn["player"] else -1)
+            self.q_table[board_key][str(move)] += self.learning_rate * reward * (1 if winner == turn["player"] else -1)
 
         agent.exploration_rate *= 0.99
 
@@ -145,7 +145,7 @@ def get_move():
         player=current_player
     )
 
-    return jsonify({"move": move})
+    return jsonify({"move": move, "player": current_player})
 
 @app.route("/learn", methods=["POST"])
 def learn():
@@ -173,6 +173,7 @@ def learn():
 @app.route("/")
 def index():
     """A simple endpoint to view the agent's Q-table."""
+    load_state()
     return jsonify(agent.q_table)
 
 
