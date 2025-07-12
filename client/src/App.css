@@ -93,14 +93,14 @@
 
 .board-representation {
   display: grid;
-  grid-template-columns: repeat(3, 20px);
+  grid-template-columns: repeat(3, 40px);
   gap: 2px;
   margin-bottom: 10px;
 }
 
 .mini-square {
-  width: 20px;
-  height: 20px;
+  width: 40px;
+  height: 40px;
   border: 1px solid #999;
   display: flex;
   justify-content: center;
@@ -109,11 +109,11 @@
 }
 
 .player-one {
-  background-color: #ffcccc;
+  background-color: blue;
 }
 
 .player-two {
-  background-color: #ccccff;
+  background-color: purple;
 }
 
 .action-values {

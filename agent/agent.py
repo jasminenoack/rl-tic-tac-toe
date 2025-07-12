@@ -99,7 +99,7 @@ class RLAgent:
         self.learning_rate = learning_rate
         self.discount_factor = discount_factor
         self.exploration_rate = exploration_rate
-        self.min_exploration_rate = 0.01
+        self.min_exploration_rate = 0.1
         # player -> state -> action -> Q-value
         self.q_table = {}
 
@@ -112,7 +112,7 @@ class RLAgent:
         return f"{board_key}"
 
     def choose_action(self, board: list, valid_moves: list, player: str) -> int:
-        if random.random() < self.exploration_rate:
+        if random.random() < self.exploration_rate or len(valid_moves) > 7:
             return random.choice(valid_moves)
 
         canonical_board, transform_id = get_canonical_form(board)

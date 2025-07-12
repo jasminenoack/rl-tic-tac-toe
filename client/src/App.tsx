@@ -167,23 +167,40 @@ function QTableDisplay({ qTable }: QTableDisplayProps) {
     <div className="q-table-display">
       <h2>Q-Table Visualization</h2>
       <div className="q-table-container">
-        {Object.entries(qTable).map(([boardKey, actions]) => (
-          <div key={boardKey} className="q-table-board">
-            <div className="board-representation">
-              {boardKey.split('').map((char, index) => (
-                <div key={index} className={`mini-square ${char === '1' ? 'player-one' : char === '0' ? 'player-two' : ''}`}>
-                  {char}
-                </div>
-              ))}
+        {Object.entries(qTable)
+          .sort(([boardKeyA], [boardKeyB]) => boardKeyA.localeCompare(boardKeyB))
+          .map(([boardKey, actions]) => (
+            <div key={boardKey} className="q-table-board">
+              <div className="board-representation">
+                {boardKey.split('').map((char, index) => {
+                  const actionValue = (actions as any)[index.toString()];
+                  const style: React.CSSProperties = {};
+                  let content: React.ReactNode = char;
+
+                  if (char !== '1' && char !== '0' && actionValue !== undefined) {
+                    style.backgroundColor = getHeatmapColor(actionValue);
+                    style.color = 'black';
+                    style.fontWeight = 'bold';
+                    content = (actionValue as number).toFixed(2);
+                  }
+
+                  return (
+                    <div key={index} className={`mini-square ${char === '1' ? 'player-one' : char === '0' ? 'player-two' : ''}`} style={style}>
+                      {content}
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="action-values">
+                {Object.entries(actions as any)
+                  .sort(([actionA], [actionB]) => parseInt(actionA) - parseInt(actionB))
+                  .map(([action, value]) => (
+                    <div key={action} className="action-value" style={{ backgroundColor: getHeatmapColor(value as number) }}>
+                      {action}: {(value as number).toFixed(2)}
+                    </div>
+                  ))}
+              </div>
             </div>
-            <div className="action-values">
-              {Object.entries(actions as any).map(([action, value]) => (
-                <div key={action} className="action-value" style={{ backgroundColor: getHeatmapColor(value as number) }}>
-                  {action}: {(value as number).toFixed(2)}
-                </div>
-              ))}
-            </div>
-          </div>
         ))}
       </div>
     </div>
